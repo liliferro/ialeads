@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 const PRIVATE = /^(10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|::1|f[cd]|fe80)/i;
 const FREE_MAIL = /@(gmail|hotmail|outlook|yahoo|live|icloud|msn|prodigy)\./i;
+const SOCIAL = /(facebook|instagram|twitter|x\.com|linkedin|youtube|tiktok|whatsapp|wa\.me|google|goo\.gl|apple|microsoft|wordpress|wix|godaddy|cloudflare|gstatic|w3\.org|schema\.org|pinterest|t\.me|bit\.ly|maps\.)/i;
 const JUNK = /(sentry|wixpress|example|\.png|\.jpg|\.gif|\.webp|\.svg)/i;
 
 // Solo páginas públicas: bloquea direcciones internas para que el extractor no pueda usarse contra la red privada.
@@ -58,9 +59,24 @@ function extract(html, url) {
 export async function POST(request) {
   const auth = await requireMember(request);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  const { url: raw } = await request.json().catch(() => ({}));
+  const { url: raw, mode } = await request.json().catch(() => ({}));
   const url = await safeUrl(String(raw || '').trim());
   if (!url) return NextResponse.json({ error: 'Dirección no válida. Usa el sitio público de la empresa.' }, { status: 400 });
+  if (mode === 'directorio') {
+    try {
+      const html = await grab(url);
+      const hosts = new Set();
+      for (const m of html.matchAll(/href=["'](https?:\/\/[^"'#?\s]+)/gi)) {
+        try {
+          const h = new URL(m[1]).hostname.replace(/^www\./, '');
+          if (h !== url.hostname.replace(/^www\./, '') && !SOCIAL.test(h)) hosts.add(h);
+        } catch { /* enlace inválido */ }
+      }
+      return NextResponse.json({ links: [...hosts].slice(0, 40) });
+    } catch (e) {
+      return NextResponse.json({ error: e.message || 'No se pudo leer el directorio' }, { status: 502 });
+    }
+  }
   try {
     const home = await grab(url);
     let data = extract(home, url);

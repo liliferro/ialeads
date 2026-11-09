@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { usePanel } from '../ctx';
-import { PageHead, Chips, SectorPicker } from '@/components/ui';
+import { PageHead, MultiSelect } from '@/components/ui';
+import { SECTORES } from '@/lib/sectores';
 import { ESTADOS_MX, ESTRATOS } from '@/lib/shared';
 import { sectorIdsFromScian, scianFromSectorIds } from '@/lib/sectores';
 import { loadDemo, clearDemo } from '@/lib/demo';
@@ -74,9 +75,9 @@ export default function Ajustes() {
         <div className="card">
           <h2>Cliente ideal</h2>
           <p className="small muted">La app califica cada empresa con tres criterios. Cumple los tres: encaje A. Dos: encaje B. Uno o ninguno: encaje C.</p>
-          <label>1 · Sectores que compran</label>
-          <SectorPicker value={sectores} onChange={setSectores} />
-          <div className="grid2" style={{ marginTop: 6 }}>
+          <div className="grid2">
+            <div><label htmlFor="sec">1 · Sectores que le compran</label><MultiSelect id="sec" options={SECTORES} value={sectores} onChange={setSectores} placeholder="Todos los sectores" unit="sectores" /></div>
+            <div><label htmlFor="est">3 · Estados donde vende</label><MultiSelect id="est" options={ESTADO_OPTS} value={s.icp_states || []} onChange={(v) => setS({ ...s, icp_states: v })} placeholder="Todo el país" unit="estados" /></div>
             <div>
               <label htmlFor="emin">2 · Tamaño mínimo</label>
               <select id="emin" value={s.estrato_min} onChange={(e) => setS({ ...s, estrato_min: e.target.value })}>{Object.entries(ESTRATOS).map(([k, v]) => <option key={k} value={k}>{v} personas</option>)}</select>
@@ -86,8 +87,6 @@ export default function Ajustes() {
               <select id="emax" value={s.estrato_max} onChange={(e) => setS({ ...s, estrato_max: e.target.value })}>{Object.entries(ESTRATOS).map(([k, v]) => <option key={k} value={k}>{v} personas</option>)}</select>
             </div>
           </div>
-          <label>3 · Estados donde vende</label>
-          <Chips options={ESTADO_OPTS} value={s.icp_states || []} onChange={(v) => setS({ ...s, icp_states: v })} label="Estados" />
           <p className="small muted" style={{ marginTop: 6 }}>Un criterio sin elegir se da por cumplido para todas las empresas.</p>
         </div>
 

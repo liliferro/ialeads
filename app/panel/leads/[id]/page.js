@@ -4,11 +4,13 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { usePanel } from '../../ctx';
-import { SOURCES, ROUTES, LEAD_STATUS, ESTRATOS, fmtDate } from '@/lib/shared';
+import { SOURCES, ROUTES, LEAD_STATUS, ESTRATOS, SEQUENCE, draftMessage, fmtDate } from '@/lib/shared';
 
 export default function LeadDetail() {
   const { id } = useParams();
-  const { supabase, user, authFetch } = usePanel();
+  const { supabase, user, authFetch, settings } = usePanel();
+  const [company, setCompany] = useState(null);
+  const [copied, setCopied] = useState(false);
   const [lead, setLead] = useState(null);
   const [events, setEvents] = useState([]);
   const [note, setNote] = useState('');
@@ -20,6 +22,7 @@ export default function LeadDetail() {
       supabase.from('lead_events').select('*').eq('lead_id', id).order('at', { ascending: false }),
     ]);
     setLead(l);
+    if (l?.company_id) { const { data: c } = await supabase.from('companies').select('*').eq('id', l.company_id).maybeSingle(); setCompany(c); }
     setEvents(ev || []);
   }, [supabase, id]);
   useEffect(() => { load(); }, [load]);
@@ -86,6 +89,27 @@ export default function LeadDetail() {
           </select>
         </div>
       </div>
+
+      {lead.source.startsWith('prospeccion') && company && (() => {
+        const next = SEQUENCE[company.seq_step];
+        if (!settings.outbound_legal_ok) return <div className="notice warn">Mensajes de prospección bloqueados: falta activar en Ajustes el visto bueno del abogado.</div>;
+        if (!next) return <div className="notice">Secuencia de contacto terminada. Decide si se descarta o se retoma más adelante.</div>;
+        const text = draftMessage(next.step, company, settings);
+        return (
+          <div className="card">
+            <h2>Siguiente paso: {next.label}</h2>
+            <pre className="draft">{text}</pre>
+            <p className="small muted">Borrador. Revísalo y envíalo desde tu correo o teléfono; la app todavía no envía mensajes.</p>
+            <div className="row">
+              <div className="fit"><button className="ghost" onClick={async () => { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>{copied ? 'Copiado' : 'Copiar mensaje'}</button></div>
+              <div className="fit"><button onClick={async () => {
+                await supabase.from('companies').update({ seq_step: company.seq_step + 1, status: 'en_secuencia' }).eq('id', company.id);
+                await patch({ first_response_at: lead.first_response_at || new Date().toISOString(), status: lead.status === 'nuevo' ? 'en_contacto' : lead.status }, 'contacto', next.label);
+              }}>Ya lo envié</button></div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Gestión</h2>

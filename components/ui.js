@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { SECTORES } from '@/lib/sectores';
 
@@ -71,11 +72,55 @@ export function Empty({ title, children }) {
   );
 }
 
-export function ProspectTabs({ active }) {
+// Lista desplegable con casillas y buscador, para elegir varias opciones sin llenar la pantalla.
+export function MultiSelect({ id, options, value, onChange, placeholder = 'Elegir…', unit = 'elegidos' }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useEffect(() => {
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+  const picked = options.filter((o) => value.includes(o.id));
+  const shown = options.filter((o) => o.label.toLowerCase().includes(q.toLowerCase()));
+  const text = !picked.length ? placeholder : picked.length <= 2 ? picked.map((p) => p.label).join(', ') : `${picked.length} ${unit}`;
   return (
-    <nav className="seg" aria-label="Origen de las cuentas">
-      <Link href="/panel/cuentas" aria-current={active === 'denue' ? 'page' : undefined}>Base DENUE</Link>
-      <Link href="/panel/web" aria-current={active === 'web' ? 'page' : undefined}>Web pública</Link>
-    </nav>
+    <div className="ms" ref={ref} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
+      <button type="button" id={id} className={`ms-btn${picked.length ? '' : ' empty'}`} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span>{text}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+      {open && (
+        <div className="ms-pop">
+          {options.length > 8 && <input autoFocus aria-label="Buscar opción" placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} />}
+          <div className="ms-list" role="listbox" aria-multiselectable="true">
+            {shown.map((o) => (
+              <label key={o.id} className="ms-opt">
+                <input type="checkbox" checked={value.includes(o.id)} onChange={(e) => onChange(e.target.checked ? [...value, o.id] : value.filter((v) => v !== o.id))} />
+                {o.label}
+              </label>
+            ))}
+            {!shown.length && <div className="muted small" style={{ padding: 8 }}>Sin coincidencias</div>}
+          </div>
+          <div className="ms-foot">
+            <button type="button" className="ghost sm" onClick={() => onChange([])}>Limpiar</button>
+            <button type="button" className="sm" onClick={() => setOpen(false)}>Listo</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Pasos numerados para que siempre se vea en qué punto del flujo está la persona.
+export function Steps({ steps, current }) {
+  return (
+    <ol className="steps">
+      {steps.map((s, i) => (
+        <li key={s} className={i < current ? 'done' : i === current ? 'now' : ''} aria-current={i === current ? 'step' : undefined}>
+          <span className="n">{i < current ? '✓' : i + 1}</span>{s}
+        </li>
+      ))}
+    </ol>
   );
 }

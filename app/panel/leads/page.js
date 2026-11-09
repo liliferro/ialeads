@@ -80,7 +80,7 @@ export default function Leads() {
                         {fitTag(l)}
                         <span className="tag info">{SOURCES[l.source]}</span>
                         {l.route && <span className="tag">{ROUTES[l.route]}</span>}
-                        {!l.first_response_at && <span className="tag bad">Sin responder</span>}
+                        {!l.first_response_at && (l.source.startsWith('prospeccion') ? <span className="tag warn">Por contactar</span> : <span className="tag bad">Sin responder</span>)}
                       </div>
                     </Link>
                   ))}

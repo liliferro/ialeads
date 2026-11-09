@@ -23,12 +23,13 @@ export default function Tablero() {
   useEffect(() => {
     (async () => {
       const since = new Date(Date.now() - days * 864e5).toISOString();
-      const [{ data: leads }, { data: spend }, { count: cuentas }] = await Promise.all([
+      const [{ data: leads }, { data: spend }, { count: cuentas }, { count: porRevisar }] = await Promise.all([
         supabase.from('leads').select('source,status,route,fit,created_at,first_response_at').gte('created_at', since).limit(5000),
         supabase.from('ad_spend').select('source,amount_mxn').gte('day', since.slice(0, 10)).limit(5000),
         supabase.from('companies').select('id', { count: 'exact', head: true }),
+        supabase.from('companies').select('id', { count: 'exact', head: true }).eq('status', 'nueva'),
       ]);
-      setData({ leads: leads || [], spend: spend || [], cuentas: cuentas || 0 });
+      setData({ leads: leads || [], spend: spend || [], cuentas: cuentas || 0, porRevisar: porRevisar || 0 });
     })();
   }, [supabase, days]);
 
@@ -54,17 +55,36 @@ export default function Tablero() {
 
   return (
     <>
-      <PageHead title={`Tablero · ${settings.client_name}`} sub="Qué fuente trae oportunidades reales y cuánto cuesta cada una.">
+      <PageHead title={`Inicio · ${settings.client_name}`} sub="Qué sigue por hacer y qué fuente está trayendo oportunidades.">
         <div className="seg" role="group" aria-label="Periodo">
           {[7, 30, 90].map((d) => <button key={d} aria-pressed={days === d} onClick={() => setDays(d)}>{d} días</button>)}
         </div>
       </PageHead>
 
-      {all.length === 0 && data.cuentas === 0 && (
-        <div className="notice info">
-          Aún no hay datos. Para recorrer la app completa, carga los datos de demostración en <Link href="/panel/ajustes">Ajustes</Link>, o empieza por definir tu cliente ideal y extraer cuentas en <Link href="/panel/cuentas">Prospección</Link>.
-        </div>
-      )}
+      {(() => {
+        const icp = (settings.icp_scian || []).length > 0 && !!settings.product_line;
+        const nuevos = all.filter((l) => l.status === 'nuevo').length;
+        const pasos = [
+          ['/panel/ajustes', 'Define a quién le vendes', icp ? 'Cliente ideal configurado' : 'Elige sectores, tamaños y estados', icp],
+          ['/panel/cuentas', 'Encuentra empresas', data.cuentas ? `${data.cuentas} empresas encontradas` : 'Busca en el directorio o en sitios web', data.cuentas > 0],
+          ['/panel/cuentas', 'Revisa y pasa a Leads', data.porRevisar ? `${data.porRevisar} empresas por revisar` : 'Nada pendiente de revisar', data.cuentas > 0 && data.porRevisar === 0],
+          ['/panel/leads', 'Da seguimiento', nuevos ? `${nuevos} leads nuevos esperan` : 'Sin leads nuevos por atender', all.length > 0 && nuevos === 0],
+        ];
+        return (
+          <div className="card">
+            <h2>Cómo se usa, en cuatro pasos</h2>
+            <div className="guide">
+              {pasos.map(([href, t, d, done], i) => (
+                <Link href={href} key={t} className={done ? 'done' : ''}>
+                  <span className="k">{done ? '✓ Hecho' : `Paso ${i + 1}`}</span>
+                  <b>{t}</b><span className="d">{d}</span>
+                </Link>
+              ))}
+            </div>
+            {all.length === 0 && data.cuentas === 0 && <p className="small muted" style={{ margin: '12px 0 0' }}>¿Quieres verla llena antes de empezar? Carga los datos de demostración en <Link href="/panel/ajustes">Ajustes</Link>.</p>}
+          </div>
+        );
+      })()}
 
       <div className="tiles">
         <div className="tile"><div className="n">{all.length}</div><div className="l">Leads recibidos</div></div>

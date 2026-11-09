@@ -8,17 +8,9 @@ import { Icon } from '@/components/ui';
 import { PanelContext } from './ctx';
 
 const NAV = [
-  ['Resumen', [['/panel', 'Tablero', 'home'], ['/panel/leads', 'Leads', 'inbox']]],
-  ['Fuentes', [
-    ['/panel/cuentas', 'Prospección', 'target'],
-    ['/panel/contenido', 'SEO y GEO', 'doc'],
-    ['/panel/pauta', 'Pauta', 'ads'],
-  ]],
-  ['Configuración', [
-    ['/panel/integraciones', 'Integraciones', 'plug'],
-    ['/panel/exclusiones', 'Exclusiones', 'ban'],
-    ['/panel/ajustes', 'Ajustes', 'gear'],
-  ]],
+  ['Trabajo diario', [['/panel', 'Inicio', 'home'], ['/panel/cuentas', 'Encontrar empresas', 'search'], ['/panel/leads', 'Leads', 'inbox']]],
+  ['Otras fuentes', [['/panel/contenido', 'SEO y GEO', 'doc'], ['/panel/pauta', 'Pauta', 'ads']]],
+  ['Configuración', [['/panel/integraciones', 'Integraciones', 'plug'], ['/panel/exclusiones', 'Exclusiones', 'ban'], ['/panel/ajustes', 'Ajustes', 'gear']]],
 ];
 
 export default function PanelLayout({ children }) {
@@ -78,7 +70,7 @@ export default function PanelLayout({ children }) {
     if (!res.ok) throw new Error(json.error || 'Error del servidor');
     return json;
   };
-  const isOn = (href) => (href === '/panel' ? pathname === href : pathname.startsWith(href) || (href === '/panel/cuentas' && pathname.startsWith('/panel/web')));
+  const isOn = (href) => (href === '/panel' ? pathname === href : pathname.startsWith(href));
 
   return (
     <PanelContext.Provider value={{ supabase, user: state.user, settings: state.settings, reloadSettings, authFetch }}>
