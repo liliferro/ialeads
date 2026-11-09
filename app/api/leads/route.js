@@ -21,7 +21,10 @@ export async function POST(request) {
 
   // Filtro con DENUE. Si la herramienta falla, el lead no se pierde: cae en "verificar".
   let found = { match: null, confidence: null };
-  try { found = await matchCompany(p.company_name, p.state); } catch { /* DENUE no disponible */ }
+  try {
+    const { data: icp } = await supabase.rpc('icp_prefixes');
+    found = await matchCompany(p.company_name, p.state, icp || []);
+  } catch { /* DENUE no disponible */ }
   const { data: enriched } = await supabase.rpc('enrich_lead', {
     p_id: created.id,
     p_token: created.token,

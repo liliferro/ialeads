@@ -6,7 +6,8 @@ import { usePanel } from '../ctx';
 import CompanyList from '../CompanyList';
 import { PageHead, Chips, SectorPicker, Icon, ProspectTabs } from '@/components/ui';
 import { ESTADOS_MX, ESTRATOS, computeFit, domainOf } from '@/lib/shared';
-import { sectorIdsFromScian, matchesSectors } from '@/lib/sectores';
+import { SECTORES, sectorIdsFromScian } from '@/lib/sectores';
+import { giroFilters } from '@/lib/giro';
 
 const TAM = Object.entries(ESTRATOS).map(([k, v]) => ({ id: Number(k), label: `${v} personas` }));
 const CON = [{ id: 'conTelefono', label: 'Con teléfono' }, { id: 'conEmail', label: 'Con correo' }, { id: 'conWeb', label: 'Con sitio web' }];
@@ -21,32 +22,57 @@ export default function Cuentas() {
   const [soloAB, setSoloAB] = useState(true);
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState(null);
+  const [mercado, setMercado] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const filtros = () => ({
+    estados: estado ? [estado] : undefined,
+    estratos: tam.length ? tam : undefined,
+    ...Object.fromEntries(con.map((k) => [k, true])),
+  });
+  // La herramienta filtra por giro en la consulta: una consulta por cada sector elegido.
+  const grupos = () => (sectores.length ? SECTORES.filter((x) => sectores.includes(x.id)) : [{ id: 'todos', label: 'Todos los giros', scian: [] }]);
+  const giro = (g) => {
+    const { sectores: sec, actividades } = giroFilters(g.scian);
+    return { ...(actividades.length ? { actividades } : {}), ...(sec.length ? { sectores: sec } : {}) };
+  };
+
+  // Cuenta cuántas empresas hay con estos filtros, sin guardar nada.
+  async function dimensionar() {
+    setResult(null); setMercado(null);
+    try {
+      const out = [];
+      for (const g of grupos()) {
+        setBusy(`Contando: ${g.label}…`);
+        const r = await authFetch('/api/denue', { ...filtros(), ...giro(g), porPagina: 1 });
+        out.push({ label: g.label, total: Number(r.total) || 0 });
+      }
+      setMercado(out);
+    } catch (err) { setResult({ ok: false, text: err.message }); }
+    setBusy('');
+  }
 
   // Trae las cuentas de la base del DENUE, las clasifica y las guarda, todo en un paso.
   async function extraer(e) {
     e.preventDefault();
     setResult(null);
     const found = new Map();
-    let sinCodigo = false;
     try {
-      const paginas = Math.ceil(limite / 100);
-      for (let pagina = 1; pagina <= paginas; pagina++) {
-        setBusy(`Consultando la base… página ${pagina} de ${paginas}`);
-        const r = await authFetch('/api/denue', {
-          estados: estado ? [estado] : undefined,
-          estratos: tam.length ? tam : undefined,
-          ...Object.fromEntries(con.map((k) => [k, true])),
-          pagina, porPagina: 100,
-        });
-        if (!r.items.length) break;
-        if (r.items.every((i) => !i.scian)) sinCodigo = true;
-        for (const i of r.items) found.set(i.denue_id || `${i.name}|${i.municipality}`, i);
-        if (r.items.length < 100) break;
+      const gs = grupos();
+      const porGrupo = Math.max(100, Math.ceil(limite / gs.length / 100) * 100);
+      for (const g of gs) {
+        for (let pagina = 0; pagina < porGrupo / 100; pagina++) {
+          setBusy(`Consultando: ${g.label}${pagina ? ` (página ${pagina + 1})` : ''}…`);
+          const r = await authFetch('/api/denue', { ...filtros(), ...giro(g), pagina, porPagina: 100 });
+          for (const i of r.items) {
+            const key = i.denue_id || `${i.name}|${i.municipality}`;
+            if (!found.has(key)) found.set(key, { ...i, scian: g.scian[0] || null });
+          }
+          if (!r.hayMas || !r.items.length) break;
+        }
       }
       const todas = [...found.values()];
-      const delSector = sinCodigo ? todas : todas.filter((c) => matchesSectors(c.scian, sectores));
-      const rows = delSector
+      const rows = todas
         .map((c) => ({
           name: c.name, legal_name: c.legal_name, denue_id: c.denue_id, scian: c.scian, giro: c.giro, estrato: c.estrato,
           state: c.state, municipality: c.municipality, phone: c.phone, email: c.email, website: c.website,
@@ -55,14 +81,13 @@ export default function Cuentas() {
         .filter((r) => !soloAB || ['A', 'B'].includes(r.fit));
 
       setBusy('Guardando cuentas…');
-      const withId = rows.filter((r) => r.denue_id);
-      const withoutId = rows.filter((r) => !r.denue_id);
       let error = null;
-      if (withId.length) ({ error } = await supabase.from('companies').upsert(withId, { onConflict: 'denue_id', ignoreDuplicates: true }));
-      if (!error && withoutId.length) ({ error } = await supabase.from('companies').insert(withoutId));
+      for (let i = 0; i < rows.length && !error; i += 200) {
+        ({ error } = await supabase.from('companies').upsert(rows.slice(i, i + 200), { onConflict: 'denue_id', ignoreDuplicates: true }));
+      }
       if (error) throw new Error(error.message);
       const by = (f) => rows.filter((r) => r.fit === f).length;
-      setResult({ ok: true, revisadas: todas.length, delSector: delSector.length, guardadas: rows.length, A: by('A'), B: by('B'), C: by('C'), sinCodigo });
+      setResult({ ok: true, revisadas: todas.length, guardadas: rows.length, A: by('A'), B: by('B'), C: by('C') });
       setRefreshKey((k) => k + 1);
     } catch (err) {
       setResult({ ok: false, text: err.message });
@@ -91,7 +116,7 @@ export default function Cuentas() {
             </select>
           </div>
           <div>
-            <label htmlFor="limite">Cuántas revisar</label>
+            <label htmlFor="limite">Cuántas traer</label>
             <select id="limite" value={limite} onChange={(e) => setLimite(Number(e.target.value))}>
               {[100, 300, 500, 1000].map((n) => <option key={n} value={n}>Hasta {n} empresas</option>)}
             </select>
@@ -109,15 +134,30 @@ export default function Cuentas() {
         </label>
 
         <p style={{ marginTop: 16, marginBottom: 0 }}>
-          <button disabled={!!busy}><Icon name="bolt" />{busy || 'Extraer cuentas'}</button>
+          <button disabled={!!busy}><Icon name="bolt" />{busy || 'Extraer cuentas'}</button>{' '}
+          <button type="button" className="ghost" disabled={!!busy} onClick={dimensionar}><Icon name="search" />Ver tamaño del mercado</button>
         </p>
       </form>
 
       {result && !result.ok && <div className="notice bad" role="alert">No se pudo extraer: {result.text}. Revisa la conexión en <Link href="/panel/integraciones">Integraciones</Link>.</div>}
+      {mercado && (
+        <div className="card">
+          <h2>Tamaño del mercado con estos filtros</h2>
+          <div className="bars">
+            {mercado.map((m) => (
+              <div className="bar" key={m.label}>
+                <span>{m.label}</span>
+                <div className="track"><div className="fill" style={{ width: `${(m.total / Math.max(1, ...mercado.map((x) => x.total))) * 100}%` }} /></div>
+                <span className="v">{m.total.toLocaleString('es-MX')}</span>
+              </div>
+            ))}
+          </div>
+          <p className="small muted" style={{ marginBottom: 0 }}>Empresas registradas en el DENUE. Fuente: INEGI, vía Leads INEGI (Iron); las clasificaciones son aproximadas.</p>
+        </div>
+      )}
       {result?.ok && (
         <div className="notice ok" role="status">
-          Se revisaron <b>{result.revisadas}</b> empresas, <b>{result.delSector}</b> de los sectores elegidos. Se guardaron <b>{result.guardadas}</b>: {result.A} de encaje A, {result.B} de encaje B{result.C ? ` y ${result.C} de encaje C` : ''}. Las que ya existían no se duplicaron.
-          {result.sinCodigo && <><br />Aviso: la herramienta no devolvió el código de actividad, así que no se pudo filtrar por sector.</>}
+          Se encontraron <b>{result.revisadas}</b> empresas y se guardaron <b>{result.guardadas}</b>: {result.A} de encaje A, {result.B} de encaje B{result.C ? ` y ${result.C} de encaje C` : ''}. Las que ya existían no se duplicaron.
         </div>
       )}
 

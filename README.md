@@ -36,10 +36,9 @@ App del piloto: captura leads de tres fuentes (SEO/GEO, prospección, pauta), lo
 - El panel solo muestra datos a correos listados en `allowed_emails`.
 - La app **no envía** correos ni mensajes de prospección: propone borradores que una persona revisa y envía. Los borradores permanecen ocultos hasta activar el candado legal en Ajustes.
 
-## Pendiente de verificar
+## Conexión con el DENUE
 
-- La forma exacta del JSON de `leads.iron-ai.com` no se pudo comprobar al construir la app. `lib/denue.js` acepta varios nombres de campo y `/panel/cuentas` muestra un diagnóstico con los campos reales.
-- ScrapeGraphAI no está conectado por API: su resultado se pega en `/panel/web`.
+`lib/denue.js` usa la API de `leads.iron-ai.com` (`/api/agente/buscar_leads`, POST con JSON). La respuesta no trae el código SCIAN de cada empresa, así que el giro se filtra en la consulta con `actividades` (prefijos de 3 a 6 dígitos) o `sectores` (2 dígitos). La paginación empieza en 0. Fuente de los datos: INEGI, DENUE, vía Leads INEGI (Iron).
 
 ## Desarrollo local
 

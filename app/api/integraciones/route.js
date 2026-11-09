@@ -13,7 +13,7 @@ export async function POST(request) {
 
   if (test === 'denue') {
     try {
-      const [catalog, sample] = await Promise.all([callDenue('listar_sectores_y_tamanos', {}), searchDenue({ porPagina: 2 })]);
+      const [catalog, sample] = await Promise.all([callDenue('listar_sectores_y_tamanos', {}), searchDenue({ porPagina: 2, pagina: 0 })]);
       return NextResponse.json({
         ok: sample.ok,
         status: sample.status,

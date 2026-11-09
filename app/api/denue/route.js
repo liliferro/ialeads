@@ -11,10 +11,11 @@ export async function POST(request) {
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
   let body;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Solicitud inválida' }, { status: 400 }); }
-  const allowed = ['estados', 'municipios', 'cp', 'sectores', 'actividades', 'nombre', 'estratos', 'conTelefono', 'conEmail', 'emailCorporativo', 'conWeb', 'pagina', 'porPagina', 'orden'];
+  const allowed = ['estados', 'municipios', 'cp', 'sectores', 'actividades', 'nombre', 'estratos', 'conTelefono', 'conEmail', 'emailCorporativo', 'conWeb', 'excluirPublico', 'sucursales', 'pagina', 'porPagina', 'orden'];
   const params = {};
   for (const k of allowed) if (body[k] !== undefined) params[k] = body[k];
-  params.porPagina = Math.min(Number(params.porPagina) || 50, 100);
+  params.porPagina = Math.min(Math.max(Number(params.porPagina) || 50, 1), 100);
+  params.pagina = Math.max(Number(params.pagina) || 0, 0);
   try {
     const r = await searchDenue(params);
     if (!r.ok) return NextResponse.json({ error: `La herramienta del DENUE respondió ${r.status}`, detail: r.detail }, { status: 502 });
