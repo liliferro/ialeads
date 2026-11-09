@@ -3,103 +3,89 @@
 import { useState } from 'react';
 import { usePanel } from '../ctx';
 import CompanyList from '../CompanyList';
-import { domainOf } from '@/lib/shared';
-
-function parseCsv(text) {
-  const rows = [];
-  let row = [], cell = '', quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (quoted) {
-      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
-      else if (ch === '"') quoted = false;
-      else cell += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === ',' || ch === ';' || ch === '\t') { row.push(cell); cell = ''; }
-    else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
-    else if (ch !== '\r') cell += ch;
-  }
-  if (cell || row.length) { row.push(cell); rows.push(row); }
-  const [head, ...body] = rows.filter((r) => r.some((c) => c.trim()));
-  if (!head) return [];
-  const keys = head.map((h) => h.trim().toLowerCase());
-  return body.map((r) => Object.fromEntries(keys.map((k, i) => [k, (r[i] || '').trim()])));
-}
-
-const get = (o, keys) => { for (const k of keys) if (o[k]) return String(o[k]).trim(); return null; };
+import { PageHead, Icon, ProspectTabs } from '@/components/ui';
+import { ESTADOS_MX, domainOf } from '@/lib/shared';
 
 export default function Web() {
-  const { supabase } = usePanel();
-  const [text, setText] = useState('');
-  const [msg, setMsg] = useState(null);
+  const { supabase, authFetch } = usePanel();
+  const [urls, setUrls] = useState('');
+  const [estado, setEstado] = useState('');
+  const [busy, setBusy] = useState('');
+  const [log, setLog] = useState([]);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  async function importar() {
-    setMsg(null);
-    let items;
-    try {
-      const t = text.trim();
-      items = t.startsWith('[') || t.startsWith('{') ? [].concat(JSON.parse(t)) : parseCsv(t);
-    } catch { return setMsg({ bad: true, text: 'No se pudo leer el contenido. Usa CSV con encabezados o un arreglo JSON.' }); }
-
-    const parsed = items.map((o) => {
-      const lower = Object.fromEntries(Object.entries(o).map(([k, v]) => [k.toLowerCase(), v]));
-      const website = get(lower, ['sitio', 'web', 'website', 'url', 'sitio_web']);
-      const email = get(lower, ['correo', 'email']);
-      return {
-        name: get(lower, ['nombre', 'empresa', 'name', 'company']),
-        website, email,
-        phone: get(lower, ['telefono', 'teléfono', 'phone']),
-        state: get(lower, ['estado', 'state']),
-        municipality: get(lower, ['municipio', 'ciudad', 'city']),
-        giro: get(lower, ['giro', 'actividad', 'descripcion', 'descripción']),
-        source_url: get(lower, ['url_fuente', 'fuente', 'source_url', 'source']),
-        domain: domainOf(website) || null,
-        origins: ['web'],
-      };
-    });
-    const valid = parsed.filter((r) => r.name && r.source_url);
-    const sinFuente = parsed.length - valid.length;
-    if (!valid.length) return setMsg({ bad: true, text: 'Ninguna fila trae nombre y url_fuente. La URL de donde salió el dato es obligatoria.' });
-
-    // Fusión por empresa: si el dominio o el nombre ya existe, solo se le agrega el origen "web".
-    const { data: existing } = await supabase.from('companies').select('id,name,domain,origins').limit(5000);
-    const byDomain = new Map((existing || []).filter((c) => c.domain).map((c) => [c.domain, c]));
-    const byName = new Map((existing || []).map((c) => [c.name.toLowerCase(), c]));
-    const fresh = [];
-    let merged = 0;
-    const seen = new Set();
-    for (const r of valid) {
-      const key = r.domain || r.name.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const hit = (r.domain && byDomain.get(r.domain)) || byName.get(r.name.toLowerCase());
-      if (hit) {
-        if (!hit.origins.includes('web')) { await supabase.from('companies').update({ origins: [...hit.origins, 'web'], source_url: r.source_url }).eq('id', hit.id); merged++; }
-      } else fresh.push(r);
+  // Lee el sitio público de cada empresa, saca sus datos de contacto y la guarda como cuenta.
+  async function extraer(e) {
+    e.preventDefault();
+    const list = [...new Set(urls.split(/[\s,]+/).map((u) => u.trim()).filter(Boolean))].slice(0, 25);
+    if (!list.length) return;
+    const out = [];
+    const { data: existing } = await supabase.from('companies').select('id,domain,origins').not('domain', 'is', null).limit(5000);
+    const byDomain = new Map((existing || []).map((c) => [c.domain, c]));
+    for (let i = 0; i < list.length; i++) {
+      setBusy(`Leyendo ${i + 1} de ${list.length}…`);
+      try {
+        const d = await authFetch('/api/scrape', { url: list[i] });
+        const domain = domainOf(d.website);
+        const hit = byDomain.get(domain);
+        if (hit) {
+          if (!hit.origins.includes('web')) await supabase.from('companies').update({ origins: [...hit.origins, 'web'], source_url: d.source_url }).eq('id', hit.id);
+          out.push({ ok: true, name: d.name, note: 'Ya existía: se fusionó con la cuenta guardada' });
+        } else {
+          const { error } = await supabase.from('companies').insert({
+            name: d.name, website: d.website, domain, email: d.email, phone: d.phone, giro: d.description || null,
+            state: estado || null, source_url: d.source_url, origins: ['web'],
+          });
+          if (error) throw new Error(error.message);
+          byDomain.set(domain, { origins: ['web'] });
+          out.push({ ok: true, name: d.name, note: [d.email && 'correo', d.phone && 'teléfono'].filter(Boolean).join(' y ') || 'sin datos de contacto publicados' });
+        }
+      } catch (err) {
+        out.push({ ok: false, name: list[i], note: err.message });
+      }
+      setLog([...out]);
     }
-    const { error } = fresh.length ? await supabase.from('companies').insert(fresh) : { error: null };
-    if (error) return setMsg({ bad: true, text: error.message });
-    setMsg({ text: `${fresh.length} cuentas nuevas, ${merged} fusionadas con cuentas existentes${sinFuente ? `, ${sinFuente} filas omitidas por no traer nombre o url_fuente` : ''}.` });
-    setText('');
+    setBusy('');
+    setUrls('');
     setRefreshKey((k) => k + 1);
   }
 
   return (
     <>
-      <h1>Cuentas · origen web</h1>
-      <p className="muted">Segundo origen de prospección: empresas halladas en la web pública (por ejemplo con ScrapeGraphAI). La extracción se corre fuera de la app; aquí se pega el resultado.</p>
+      <PageHead title="Prospección" sub="Empresas que no están en el DENUE o están mal clasificadas: la app lee su sitio y saca el contacto.">
+        <ProspectTabs active="web" />
+      </PageHead>
 
-      <div className="card">
-        <label htmlFor="pega">Pega CSV o JSON</label>
-        <textarea id="pega" style={{ minHeight: 140, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '.85rem' }} value={text} onChange={(e) => setText(e.target.value)} placeholder={'nombre,sitio,correo,telefono,estado,municipio,giro,url_fuente\nEmpaques del Norte,empaquesdelnorte.mx,ventas@empaquesdelnorte.mx,,Nuevo León,Monterrey,Fabricación de empaques,https://directorio.ejemplo/empaques'} />
-        <p className="small muted">Columnas: <code>nombre</code> y <code>url_fuente</code> son obligatorias (hay que poder decir de dónde salió cada dato). Solo datos de contacto de la empresa publicados por ella misma; nada de correos personales ni datos de perfiles de redes.</p>
-        {msg && <div className={`notice ${msg.bad ? 'bad' : 'ok'}`} role="status">{msg.text}</div>}
-        <button disabled={!text.trim()} onClick={importar}>Importar</button>
-      </div>
+      <form className="card" onSubmit={extraer}>
+        <h2>Extraer de sitios web</h2>
+        <label htmlFor="urls">Sitios de las empresas (uno por línea, hasta 25)</label>
+        <textarea id="urls" value={urls} onChange={(e) => setUrls(e.target.value)} placeholder={'empresa-uno.com.mx\nwww.empresa-dos.mx'} />
+        <div className="row">
+          <div>
+            <label htmlFor="estado">Estado (opcional)</label>
+            <select id="estado" value={estado} onChange={(e) => setEstado(e.target.value)}>
+              <option value="">Sin asignar</option>
+              {ESTADOS_MX.map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="fit"><button disabled={!!busy || !urls.trim()}><Icon name="globe" />{busy || 'Leer sitios y guardar'}</button></div>
+        </div>
+        <p className="small muted" style={{ marginBottom: 0 }}>Solo toma el nombre, la descripción y el contacto que la propia empresa publica (correos del dominio de la empresa, nunca personales). Cada cuenta guarda la página de donde salió el dato.</p>
+      </form>
+
+      {log.length > 0 && (
+        <div className="tablewrap" style={{ marginBottom: 16 }}>
+          <table>
+            <thead><tr><th>Empresa</th><th>Resultado</th></tr></thead>
+            <tbody>
+              {log.map((l, i) => <tr key={i}><td><b>{l.name}</b></td><td>{l.ok ? <span className="tag ok">Guardada</span> : <span className="tag bad">No se pudo</span>} <span className="small muted">{l.note}</span></td></tr>)}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <h2>Cuentas de origen web</h2>
-      <p className="small muted">Entran como «Nueva» y sin encaje: una persona las verifica y las clasifica antes de cualquier contacto.</p>
+      <p className="small muted">Entran como «Nueva» y sin encaje: una persona las revisa y clasifica antes de contactarlas.</p>
       <CompanyList origin="web" refreshKey={refreshKey} />
     </>
   );
