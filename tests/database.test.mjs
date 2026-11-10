@@ -13,11 +13,35 @@ before(async()=>{
  await db.exec(await readFile(new URL('../db/prospects.sql',import.meta.url),'utf8'));
  await db.exec(await readFile(new URL('../db/reports.sql',import.meta.url),'utf8'));
  await db.exec(await readFile(new URL('../db/content.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../supabase/migrations/20261110015905_growth_seo.sql',import.meta.url),'utf8'));
  await db.query("insert into auth.users values ($1,'admin@test.example',now()),($2,'other@test.example',now()),($3,'viewer@test.example',now())",[admin,other,viewer]);
  await db.query("insert into public.growth_organizations(id,slug,name,domain,product,hubspot_portal_id) values ($1,'a','A','a.example','Gym','50738398'),($2,'b','B','b.example','Other','123')",[orgA,orgB]);
  await db.query("insert into growth_private.access values($1,'admin@test.example','admin',true),($2,'other@test.example','admin',true),($1,'viewer@test.example','viewer',true)",[orgA,orgB]);
 });
 after(async()=>{await db.close();});
+test('SEO drafts require tenant evidence, remain unique and require a version-bound overlap review',async()=>{
+ await as(null,'service_role');const url='https://www.matdepotmex.com/blog/mejor-piso-para-gimnasio.html';
+ const audit=(await db.query('insert into growth_seo_audits(organization_id,report) values($1,$2) returning id',[orgA,JSON.stringify({inventory:[url],pages:[]})])).rows[0].id;
+ await as(admin);const content=(action,data={},id=null)=>db.query('select growth_content_command($1,$2,$3,$4) as item',[orgA,action,id,JSON.stringify(data)]);
+ const draft={title:'Revisión SEO del gimnasio',target_url:url,body:'Texto para revisión. '.repeat(15),sources:url,seo_key:'elegir',seo_context:{audit_id:audit,keyword:'piso gimnasio'}};
+ const item=(await content('create',draft)).rows[0].item;assert.equal(item.seo_key,'elegir');assert.equal((await content('create',draft)).rows[0].item.id,item.id);
+ await content('review',{version:1},item.id);await assert.rejects(content('approve',{version:1,verified:true},item.id),/seo_review_required/);
+ assert.equal((await content('approve',{version:1,verified:true,seo_reviewed:true},item.id)).rows[0].item.seo_reviewed_version,1);
+ assert.equal((await content('save',{...draft,version:1},item.id)).rows[0].item.seo_reviewed_version,null);
+ await as(other);assert.equal((await db.query('select * from growth_seo_audits')).rows.length,0);
+ await assert.rejects(db.query('insert into growth_seo_audits(organization_id,report) values($1,$2)',[orgB,'{}']),/permission denied/);
+});
+test('GEO manual observations enforce tenant, role, provenance and future-date constraints',async()=>{
+ const insert=(org=orgA,method='manual',actor=admin,date='2026-01-01')=>db.query("insert into growth_geo_observations(organization_id,engine,model,prompt,response,evidence_url,market,observed_at,created_by,method) values($1,'Claude','not reported','Una consulta de prueba','Una respuesta de prueba con evidencia','https://example.com/evidence','México',$2,$3,$4)",[org,date,actor,method]);
+ await as(admin);await insert();await assert.rejects(insert(orgB),/row-level security/);await assert.rejects(insert(orgA,'openai_api'),/row-level security/);await assert.rejects(insert(orgA,'manual',other),/row-level security/);await assert.rejects(insert(orgA,'manual',admin,'2099-01-01'),/row-level security/);
+ await as(viewer);await assert.rejects(insert(orgA,'manual',viewer),/row-level security/);await as(other);assert.equal((await db.query('select * from growth_geo_observations')).rows.length,0);
+});
+test('AI reservations are server-only, deduplicate and bound costs across failed attempts',async()=>{
+ await as(admin);await assert.rejects(db.query('select growth_reserve_ai($1,$2,$3)',[orgA,admin,randomUUID()]),/permission denied/);
+ await as(null,'service_role');const key=randomUUID();const reserve=k=>db.query('select growth_reserve_ai($1,$2,$3)',[orgA,admin,k]);await reserve(key);await assert.rejects(reserve(key),/already_reserved/);
+ for(let i=0;i<9;i++)await reserve(randomUUID());await db.query("update growth_ai_runs set status='failed' where organization_id=$1",[orgA]);await assert.rejects(reserve(randomUUID()),/ai_limit/);
+ await as(other);assert.equal((await db.query('select * from growth_ai_runs')).rows.length,0);
+});
 test('editorial approval binds version, cannot cross tenants and edits invalidate approval',async()=>{const content=(action,data={},id=null)=>db.query('select growth_content_command($1,$2,$3,$4) as item',[orgA,action,id,JSON.stringify(data)]);await as(admin);const draft={title:'Piso de gimnasio',body:'Descripción verificada de los materiales y condiciones del piso para gimnasio. Revisar las medidas con el catálogo vigente antes de publicar.',sources:'https://www.matdepotmex.com/'};const id=(await content('create',draft)).rows[0].item.id;await assert.rejects(content('approve',{version:1,verified:true},id),/review_required/);await content('review',{version:1},id);await content('approve',{version:1,verified:true},id);const saved=(await content('save',{...draft,version:1},id)).rows[0].item;assert.equal(saved.status,'borrador');assert.equal(saved.approved_version,null);await assert.rejects(content('save',{...draft,version:1},id),/version_conflict/);await as(other);assert.equal((await db.query('select * from growth_content')).rows.length,0);await assert.rejects(content('review',{version:2},id),/forbidden/);await as(viewer);await assert.rejects(content('create',draft),/forbidden/);});
 test('reports are private to members and only server can write',async()=>{await as(null,'service_role');await db.query("insert into growth_reports(organization_id,source,account_id,date_from,date_to,rows,method) values($1,'searchconsole','test','2026-10-01','2026-10-28','[]','assisted_import')",[orgA]);await as(admin);assert.equal((await db.query('select * from growth_reports')).rows.length,1);await assert.rejects(db.query("update growth_reports set rows='[]'"),/permission denied/);await as(other);assert.equal((await db.query('select * from growth_reports')).rows.length,0);await as(null,'anon');await assert.rejects(db.query('select * from growth_reports'),/permission denied/);});
 test('prospects persist independently, deduplicate by client and enforce RLS',async()=>{
