@@ -26,3 +26,7 @@ Referencia de integración: https://developers.openai.com/api/docs/guides/tools-
 9 noviembre 2026, America/Mexico_City: despliegue e801ffd listo y ambas ejecuciones CI aprobadas. Se ejecutó el diagnóstico desde la aplicación en cinco lotes: 62 URLs del sitemap y 62 páginas analizadas. Las comprobaciones de presencia/sintaxis superadas no son una auditoría SEO exhaustiva ni una garantía de resultados.
 
 Se crearon 10 briefs y borradores mediante el flujo autenticado; permanecen sin aprobación ni publicación. La clave OpenAI está disponible en Preview. Se ejecutó una consulta con búsqueda web sobre proveedores de pisos para gimnasios en CDMX/Edomex, sin incluir la marca en la pregunta. OpenAI devolvió 429: cuota o límite de uso. Se conserva el intento fallido y ninguna respuesta ficticia. Falta resolver cuota/facturación o límites en la cuenta API para validar una respuesta real completa. Claude, Gemini y Perplexity admiten registro manual; no están conectados por API.
+
+## Claude
+El piloto reconoce CLAUDE_API_KEY o ANTHROPIC_API_KEY solo en servidor. Presencia en IA permite elegir Claude Haiku 4.5 con una búsqueda web por consulta, citas y registro como anthropic_api. Comparte con OpenAI los límites de 10 intentos diarios y 100 mensuales; no hay cambio automático de proveedor. Verificación local: 49 pruebas de lógica y base, 12 de navegador y compilación correctas. La prueba con la credencial de Vercel queda por verificar.
+

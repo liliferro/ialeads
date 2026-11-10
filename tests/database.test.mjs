@@ -14,6 +14,7 @@ before(async()=>{
  await db.exec(await readFile(new URL('../db/reports.sql',import.meta.url),'utf8'));
  await db.exec(await readFile(new URL('../db/content.sql',import.meta.url),'utf8'));
  await db.exec(await readFile(new URL('../supabase/migrations/20261110015905_growth_seo.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../supabase/migrations/20261110022415_growth_claude_geo.sql',import.meta.url),'utf8'));
  await db.query("insert into auth.users values ($1,'admin@test.example',now()),($2,'other@test.example',now()),($3,'viewer@test.example',now())",[admin,other,viewer]);
  await db.query("insert into public.growth_organizations(id,slug,name,domain,product,hubspot_portal_id) values ($1,'a','A','a.example','Gym','50738398'),($2,'b','B','b.example','Other','123')",[orgA,orgB]);
  await db.query("insert into growth_private.access values($1,'admin@test.example','admin',true),($2,'other@test.example','admin',true),($1,'viewer@test.example','viewer',true)",[orgA,orgB]);
