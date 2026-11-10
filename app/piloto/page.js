@@ -3,6 +3,7 @@ import {useEffect,useState} from 'react';
 import Link from 'next/link';
 import {pilotClient} from '../../lib/pilot/client';
 import Prospects from '../../components/growth/Prospects';
+import Reports from '../../components/growth/Reports';
 import './pilot.css';
 const states=['nuevo','en_contacto','calificado','oportunidad_aceptada','cotizacion','ganado','perdido','descartado'];
 const labels={awaiting_approval:'Pendiente de aprobación',ready:'Aprobado para enviar',running:'Enviando',retry:'Reintento pendiente',completed:'Enviado',blocked:'Bloqueado',manual_review:'Revisión manual necesaria'};
@@ -32,6 +33,6 @@ export default function Pilot(){
  {job&&!['completed','running','manual_review'].includes(job.status)&&<><button onClick={()=>setPreview(!preview)}>Revisar datos para aprobación</button>{preview&&<div className="notice"><p>Se enviarán nombre, empresa, correo, teléfono, necesidad, superficie, uso, código postal, fecha requerida, origen y estado de esta solicitud (versión {current.version}).</p><pre>{JSON.stringify({nombre:current.name,empresa:current.company,correo:current.email,telefono:current.phone,necesidad:current.need,m2:current.surface_m2,uso:current.use_area,cp:current.postal_code,fecha:current.required_date,origen:current.source,estado:current.status},null,2)}</pre><button disabled={busy} onClick={()=>run(async()=>{await command('approve',{version:current.version},current.id);setPreview(false);setMessage('Versión aprobada. El envío se ejecuta con el botón Enviar a HubSpot.');})}>Aprobar esta versión</button></div>}</>}
  {job&&['ready','retry'].includes(job.status)&&<button disabled={busy} onClick={()=>run(async()=>{const {data:{session:s}}=await db.auth.getSession();const r=await fetch('/api/pilot/sync',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${s.access_token}`},body:JSON.stringify({job_id:job.id})});const result=await r.json();await refresh();if(!r.ok)throw new Error(result.error);setMessage('Proceso ejecutado. Revisa el estado de HubSpot de la solicitud.');})}>Enviar a HubSpot</button>}
  <h3>Historial</h3><form onSubmit={e=>{e.preventDefault();const form=e.currentTarget;const text=new FormData(form).get('text');run(async()=>{await command('note',{text},current.id);form.reset();});}}><label>Nota de seguimiento<textarea name="text" required maxLength={4000}/></label><button disabled={busy}>Agregar nota</button></form><ul>{events.filter(e=>e.request_id===current.id).map(e=><li key={e.id}>{new Date(e.created_at).toLocaleString('es-MX')} · {e.action}{e.detail.text&&<p>{e.detail.text}</p>}</li>)}</ul></article>}</section></div></>}
- {session&&org&&<Prospects db={db} org={org}/>}
+ {session&&org&&<><Reports db={db} org={org} requests={rows}/><Prospects db={db} org={org}/></>}
  <footer>Captura pública del sitio pendiente de activación. <Link href="/demo/resumen">Abrir demostración con datos ficticios</Link></footer></main>;
 }

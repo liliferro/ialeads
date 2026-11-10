@@ -11,11 +11,13 @@ before(async()=>{
  db=new PGlite();await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb$$;create function auth.uid() returns uuid language sql stable as $$select (auth.jwt()->>'sub')::uuid$$;grant usage on schema auth to authenticated,service_role,anon;grant execute on all functions in schema auth to authenticated,service_role,anon;`);
  await db.exec(await readFile(new URL('../db/growth.sql',import.meta.url),'utf8'));
  await db.exec(await readFile(new URL('../db/prospects.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../db/reports.sql',import.meta.url),'utf8'));
  await db.query("insert into auth.users values ($1,'admin@test.example',now()),($2,'other@test.example',now()),($3,'viewer@test.example',now())",[admin,other,viewer]);
  await db.query("insert into public.growth_organizations(id,slug,name,domain,product,hubspot_portal_id) values ($1,'a','A','a.example','Gym','50738398'),($2,'b','B','b.example','Other','123')",[orgA,orgB]);
  await db.query("insert into growth_private.access values($1,'admin@test.example','admin',true),($2,'other@test.example','admin',true),($1,'viewer@test.example','viewer',true)",[orgA,orgB]);
 });
 after(async()=>{await db.close();});
+test('reports are private to members and only server can write',async()=>{await as(null,'service_role');await db.query("insert into growth_reports(organization_id,source,account_id,date_from,date_to,rows,method) values($1,'searchconsole','test','2026-10-01','2026-10-28','[]','assisted_import')",[orgA]);await as(admin);assert.equal((await db.query('select * from growth_reports')).rows.length,1);await assert.rejects(db.query("update growth_reports set rows='[]'"),/permission denied/);await as(other);assert.equal((await db.query('select * from growth_reports')).rows.length,0);await as(null,'anon');await assert.rejects(db.query('select * from growth_reports'),/permission denied/);});
 test('prospects persist independently, deduplicate by client and enforce RLS',async()=>{
  await as(admin);const insert=(org=orgA)=>db.query("insert into growth_prospects(organization_id,denue_id,name,details) values($1,'iron-test','Gym test','{}') returning id",[org]);
  const id=(await insert()).rows[0].id;await assert.rejects(insert(),/duplicate key/);
