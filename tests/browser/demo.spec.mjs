@@ -32,3 +32,31 @@ test('mobile screens have no page overflow and can navigate',async({page})=>{
  await page.setViewportSize({width:390,height:844});for(const route of ['resumen','leads','contenido','visibilidad','ajustes']){await page.goto('/demo/'+route);await expect(page.locator('main h1')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);}
  await page.goto('/demo/resumen');await page.screenshot({path:'test-results/dashboard-mobile.png',fullPage:true});
 });
+
+test('pipeline drag, click editing, cancel and persistence',async({page})=>{
+ await page.goto('/demo/leads');
+ const columns=page.locator('.growth-column');
+ const card=columns.nth(0).locator('.growth-lead-card').first();
+ const company=await card.locator('h3').innerText();
+ const before=await columns.nth(1).locator('.growth-lead-card').count();
+ await card.dragTo(columns.nth(1));
+ await expect(columns.nth(1).locator('.growth-lead-card')).toHaveCount(before+1);
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ await page.reload();await expect(columns.nth(1).locator('.growth-lead-card')).toHaveCount(before+1);
+ await columns.nth(1).locator('.growth-lead-card').filter({hasText:company}).first().click();
+ const dialog=page.getByRole('dialog',{name:'Editar lead'});await expect(dialog).toBeVisible();
+ await dialog.getByLabel('Empresa',{exact:true}).fill('Empresa editada en pipeline');
+ await dialog.getByLabel('Teléfono',{exact:true}).fill('5551234567');
+ await dialog.getByLabel('Responsable',{exact:true}).fill('Responsable prueba');
+ await dialog.getByRole('button',{name:'Guardar seguimiento',exact:true}).click();
+ await dialog.getByRole('button',{name:'Cerrar ficha',exact:true}).click();
+ await page.reload();await page.getByRole('button',{name:/Empresa editada en pipeline/}).click();
+ await expect(dialog.getByLabel('Teléfono',{exact:true})).toHaveValue('5551234567');
+ await dialog.getByLabel('Empresa',{exact:true}).fill('No guardar');await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:/Empresa editada en pipeline/}).click();
+ await expect(dialog.getByLabel('Empresa',{exact:true})).toHaveValue('Empresa editada en pipeline');
+ await page.setViewportSize({width:390,height:844});await expect(dialog).toBeVisible();
+ await dialog.getByLabel('Estado',{exact:true}).selectOption('calificado');
+ await dialog.getByRole('button',{name:'Guardar seguimiento',exact:true}).click();
+ await page.screenshot({path:'test-results/pipeline-mobile.png'});
+});
