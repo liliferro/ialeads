@@ -30,3 +30,11 @@ Redacción, investigación y presencia en IA comparten la reserva transaccional:
 - No se implementó generación de imágenes/video, compras de enlaces ni programación automática de tareas.
 
 Las comprobaciones técnicas y las respuestas API no garantizan posiciones ni presencia en los productos de chat.
+
+## Verificación en Vercel · 9 noviembre de 2026
+
+- Los 84 pares consulta/página se muestran en Oportunidades GSC.
+- Diez propuestas guardadas en el mapa editable, con revisión y asignación pendientes.
+- Investigación real con Claude guardada con dos fuentes públicas; una consulta amplia falló y la consulta acotada se completó. Las afirmaciones siguen sujetas a revisión editorial.
+- PageSpeed no completó la medición sin credencial/cuota disponible; no se guardó puntuación.
+- 57 pruebas de lógica, permisos y servicios aprobadas, 15 recorridos de navegador aprobados y compilación correcta. Generación/adopción de borradores verificada con proveedor simulado; no se presenta como ejecución real de redacción en Vercel.
