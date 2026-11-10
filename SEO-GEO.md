@@ -20,3 +20,9 @@ Pruebas de aislamiento, roles, evidencia, aprobación por versión, deduplicaci�
 Todas las tablas nuevas tienen RLS. El asesor no señaló fallos en ellas. Persisten advertencias previas de funciones heredadas y protección de contraseñas, fuera del cambio: https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable y https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection.
 
 Referencia de integración: https://developers.openai.com/api/docs/guides/tools-web-search. La calidad de un HTML, un borrador o una respuesta no garantiza ranking, indexación ni citas futuras.
+
+## Verificación real en Vercel
+
+9 noviembre 2026, America/Mexico_City: despliegue e801ffd listo y ambas ejecuciones CI aprobadas. Se ejecutó el diagnóstico desde la aplicación en cinco lotes: 62 URLs del sitemap y 62 páginas analizadas. Las comprobaciones de presencia/sintaxis superadas no son una auditoría SEO exhaustiva ni una garantía de resultados.
+
+Se crearon 10 briefs y borradores mediante el flujo autenticado; permanecen sin aprobación ni publicación. La clave OpenAI está disponible en Preview. Se ejecutó una consulta con búsqueda web sobre proveedores de pisos para gimnasios en CDMX/Edomex, sin incluir la marca en la pregunta. OpenAI devolvió 429: cuota o límite de uso. Se conserva el intento fallido y ninguna respuesta ficticia. Falta resolver cuota/facturación o límites en la cuenta API para validar una respuesta real completa. Claude, Gemini y Perplexity admiten registro manual; no están conectados por API.
