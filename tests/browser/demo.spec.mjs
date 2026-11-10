@@ -15,8 +15,8 @@ test('dashboard, every module, and local-only network boundary',async({page,requ
  const api=await request.post('/api/leads',{data:{name:'test'}});expect(api.status()).toBe(403);
 });
 test('convert company, retain change after reload, and switch client',async({page})=>{
- await page.goto('/demo/cuentas');const row=page.getByRole('row').filter({hasText:'Empaques del Pacífico'});await row.getByRole('button',{name:'Pasar a Leads'}).click();await expect(row.getByRole('button',{name:'En Leads'})).toBeDisabled();await page.reload();await expect(row.getByRole('button',{name:'En Leads'})).toBeDisabled();
- await page.getByLabel('Cliente',{exact:true}).selectOption('envase');await expect(row.getByRole('button',{name:'Pasar a Leads'})).toBeEnabled();
+ await page.goto('/demo/cuentas');const row=page.getByRole('row').filter({hasText:'Empaques del Pacífico'});await row.getByRole('button',{name:'Empaques del Pacífico',exact:true}).click();const ficha=page.getByRole('dialog',{name:'Ficha de empresa'});await expect(ficha).toBeVisible();await expect(ficha.getByText('Andrés Rivera',{exact:true})).toBeVisible();await expect(row.getByRole('button',{name:'Ver ficha'})).toBeEnabled();await ficha.getByRole('button',{name:'Pasar a Leads'}).click();await expect(ficha.getByRole('button',{name:'En Leads',exact:true})).toBeDisabled();await ficha.getByRole('button',{name:'Cerrar ficha'}).click();await expect(row.getByRole('button',{name:'En Leads'})).toBeDisabled();await page.reload();await expect(row.getByRole('button',{name:'En Leads'})).toBeDisabled();
+ await page.getByLabel('Cliente',{exact:true}).selectOption('envase');await expect(row.getByRole('button',{name:'Ver ficha'})).toBeEnabled();
 });
 test('editorial flow requires review, invalidates on edit, and exports',async({page})=>{
  await page.goto('/demo/visibilidad');await page.getByRole('button',{name:'Palabras clave',exact:true}).click();await page.getByRole('button',{name:'Crear brief'}).first().click();
