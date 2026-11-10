@@ -1,0 +1,74 @@
+import {test,before,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {PGlite} from '@electric-sql/pglite';
+import {readFile} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+let db;const orgA=randomUUID(),orgB=randomUUID(),admin=randomUUID(),other=randomUUID(),viewer=randomUUID();
+const payload=()=>({name:'Ana de prueba',company:'Gimnasio de prueba',email:`${randomUUID()}@test.example`,need:'Necesito piso para un gimnasio de prueba.',source:'seo',consent:true,privacy_version:'test-v1',surface_m2:120});
+async function as(user,role='authenticated'){await db.exec(`reset role;set role ${role};`);await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:user,role})]);}
+async function command(action,data={},id=null,key=null,org=orgA){return (await db.query('select public.growth_command($1,$2,$3,$4,$5) as result',[org,action,id,JSON.stringify(data),key])).rows[0].result;}
+before(async()=>{
+ db=new PGlite();await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb$$;create function auth.uid() returns uuid language sql stable as $$select (auth.jwt()->>'sub')::uuid$$;grant usage on schema auth to authenticated,service_role,anon;grant execute on all functions in schema auth to authenticated,service_role,anon;`);
+ await db.exec(await readFile(new URL('../db/growth.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../db/prospects.sql',import.meta.url),'utf8'));
+ await db.query("insert into auth.users values ($1,'admin@test.example',now()),($2,'other@test.example',now()),($3,'viewer@test.example',now())",[admin,other,viewer]);
+ await db.query("insert into public.growth_organizations(id,slug,name,domain,product,hubspot_portal_id) values ($1,'a','A','a.example','Gym','50738398'),($2,'b','B','b.example','Other','123')",[orgA,orgB]);
+ await db.query("insert into growth_private.access values($1,'admin@test.example','admin',true),($2,'other@test.example','admin',true),($1,'viewer@test.example','viewer',true)",[orgA,orgB]);
+});
+after(async()=>{await db.close();});
+test('prospects persist independently, deduplicate by client and enforce RLS',async()=>{
+ await as(admin);const insert=(org=orgA)=>db.query("insert into growth_prospects(organization_id,denue_id,name,details) values($1,'iron-test','Gym test','{}') returning id",[org]);
+ const id=(await insert()).rows[0].id;await assert.rejects(insert(),/duplicate key/);
+ await assert.rejects(db.query('update growth_prospects set organization_id=$1 where id=$2',[orgB,id]),/permission denied/);
+ await db.query("update growth_prospects set status='prioritario',notes='Revisado' where id=$1",[id]);
+ await as(other);assert.equal((await db.query('select id from growth_prospects where id=$1',[id])).rows.length,0);await assert.rejects(insert(),/row-level security/);await insert(orgB);
+ await as(viewer);await assert.rejects(insert(),/row-level security/);assert.equal((await db.query("update growth_prospects set notes='viewer' where id=$1 returning id",[id])).rows.length,0);
+ await as(null,'anon');await assert.rejects(db.query('select * from growth_prospects'),/permission denied/);
+ await as(admin);assert.equal((await db.query('select notes from growth_prospects where id=$1',[id])).rows[0].notes,'Revisado');
+ assert.equal((await db.query('select count(*)::int as n from growth_requests')).rows[0].n,0);
+});
+test('durable request, approval and event are atomic; key replay is idempotent',async()=>{
+ await as(admin);const p=payload(),key=randomUUID();const a=await command('create',p,null,key);const b=await command('create',p,null,key);assert.equal(a.id,b.id);assert.equal(b.duplicate,true);
+ await assert.rejects(command('create',{...p,need:'changed payload'},null,key),/idempotency_conflict/);
+ const jobs=await db.query('select id,status from growth_outbox where request_id=$1',[a.id]);assert.equal(jobs.rows.length,1);assert.equal(jobs.rows[0].status,'awaiting_approval');
+ const events=await db.query('select action from growth_events where request_id=$1',[a.id]);assert.deepEqual(events.rows.map(x=>x.action),['created']);
+});
+test('RLS and command checks prevent cross-client reads, writes, and moves',async()=>{
+ await as(admin);const a=await command('create',payload(),null,randomUUID());await as(other);
+ assert.equal((await db.query('select * from growth_requests where id=$1',[a.id])).rows.length,0);
+ assert.equal((await db.query('select * from growth_organizations where id=$1',[orgA])).rows.length,0);
+ await assert.rejects(command('update',{version:1,status:'ganado'},a.id),/forbidden/);
+ await assert.rejects(db.query('update growth_requests set organization_id=$1 where id=$2',[orgB,a.id]),/permission denied/);
+});
+test('viewers cannot write, anonymous cannot read or call the RPC',async()=>{
+ await as(viewer);await assert.rejects(command('create',payload(),null,randomUUID()),/forbidden/);
+ await as(null,'anon');await assert.rejects(db.query('select * from growth_requests'),/permission denied/);await assert.rejects(command('create',payload(),null,randomUUID()),/permission denied/);
+});
+test('consent and rate limits are enforced inside the database',async()=>{
+ await as(admin);const p=payload();delete p.consent;await assert.rejects(command('create',p,null,randomUUID()),/consent_required/);p.consent=true;
+ for(let i=0;i<5;i++)await command('create',p,null,randomUUID());await assert.rejects(command('create',p,null,randomUUID()),/rate_limit/);
+});
+test('approval uses exact version; concurrent edits invalidate approval',async()=>{
+ await as(admin);const r=await command('create',payload(),null,randomUUID());await command('approve',{version:1},r.id);
+ await command('update',{version:1,status:'calificado'},r.id);await assert.rejects(command('update',{version:1,status:'ganado'},r.id),/version_conflict/);
+ const job=(await db.query('select id,status,approved_version from growth_outbox where request_id=$1',[r.id])).rows[0];assert.equal(job.status,'awaiting_approval');assert.equal(job.approved_version,null);
+ await as(null,'service_role');assert.equal((await command('claim',{},job.id)).status,'not_ready');
+});
+test('only workers claim, lease is exclusive, notes required for success',async()=>{
+ await as(admin);const r=await command('create',payload(),null,randomUUID());await command('approve',{version:1},r.id);const job=(await db.query('select id from growth_outbox where request_id=$1',[r.id])).rows[0];
+ await assert.rejects(command('claim',{},job.id),/forbidden/);await as(null,'service_role');const lease=await command('claim',{},job.id);assert.equal(lease.status,'running');assert.equal((await command('claim',{},job.id)).status,'not_ready');
+ await assert.rejects(command('finish',{lease:randomUUID(),status:'completed',note_id:'9'},job.id),/invalid_lease/);
+ await assert.rejects(command('finish',{lease:lease.lease,status:'completed'},job.id),/incomplete_sync/);
+ await command('checkpoint',{lease:lease.lease,phase:'contact_resolved',contact_id:'42'},job.id);await command('checkpoint',{lease:lease.lease,phase:'note_creating'},job.id);await command('finish',{lease:lease.lease,status:'completed',note_id:'99'},job.id);
+ await as(admin);const done=(await db.query('select status,hubspot_contact_id,hubspot_note_id from growth_outbox where id=$1',[job.id])).rows[0];assert.equal(done.status,'completed');assert.equal(done.hubspot_note_id,'99');
+ await assert.rejects(db.query('select lease_token,payload from growth_outbox'),/permission denied/);
+});
+test('expired leases require remote reconciliation instead of repeating a note',async()=>{
+ await as(admin);const r=await command('create',payload(),null,randomUUID());await command('approve',{version:1},r.id);const job=(await db.query('select id from growth_outbox where request_id=$1',[r.id])).rows[0];
+ await as(null,'service_role');await command('claim',{},job.id);await db.query("update growth_outbox set lease_expires_at=now()-interval '1 second' where id=$1",[job.id]);assert.equal((await command('claim',{},job.id)).status,'manual_review');
+});
+test('suppression blocks contact capture and blocks already approved jobs',async()=>{
+ await as(admin);const p=payload(),r=await command('create',p,null,randomUUID());await command('approve',{version:1},r.id);await command('suppress',{kind:'email',value:p.email,reason:'Baja solicitada'});
+ await assert.rejects(command('create',p,null,randomUUID()),/contact_suppressed/);const job=(await db.query('select status from growth_outbox where request_id=$1',[r.id])).rows[0];assert.equal(job.status,'blocked');
+});
+test('public intake stays disabled even for a privileged server call',async()=>{await as(null,'service_role');await assert.rejects(command('capture_public',payload(),null,randomUUID()),/capture_disabled/);});
