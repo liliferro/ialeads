@@ -8,7 +8,7 @@ test('MatDepot pilot is available, empty and not connected',async({page})=>{
 });
 test('dashboard, every module, and local-only network boundary',async({page,request})=>{
  const errors=[],external=[];page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(!r.url().startsWith('http://127.0.0.1:3210'))external.push(r.url());});
- await page.goto('/');await expect(page.getByRole('heading',{name:'Cada oportunidad, un siguiente paso.'})).toBeVisible();
+ await page.goto('/demo/resumen');await expect(page.getByRole('heading',{name:'Cada oportunidad, un siguiente paso.'})).toBeVisible();
  await page.screenshot({path:'test-results/dashboard-desktop.png',fullPage:true});
  for(const path of ['cuentas','leads','comercial','visibilidad','contenido','pauta','operacion','reportes','integraciones','ajustes','captura']){await page.goto('/demo/'+path);await expect(page.locator('main h1')).toBeVisible();}
  expect(errors).toEqual([]);expect(external).toEqual([]);
